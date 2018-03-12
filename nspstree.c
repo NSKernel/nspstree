@@ -182,8 +182,7 @@ void BuildNode(ProcessInfo *ParentNode) {
             continue;
         if (ProcessInfoPool[ProcessIterator].IsVisited)
             continue;
-        if (ProcessInfoPool[ProcessIterator].PID != ProcessInfoPool[ProcessIterator].TGID && ParentNode->PID == ProcessInfoPool[ProcessIterator].TGID) { // Thread group
-            ProcessInfoPool[ProcessIterator].IsThreadGroup = 1;
+        if(ProcessInfoPool[ProcessIterator].PPID == ParentNode->PID) {
             if (NumericSortFlag) {
                 ChildProcessIterator = ParentNode->ChildProcess;
                 if (ChildProcessIterator == NULL) {
@@ -228,54 +227,7 @@ void BuildNode(ProcessInfo *ParentNode) {
                 BuildNode(ParentNode->ChildProcess);
             }
             ProcessInfoPool[ProcessIterator].IsVisited = 1;
-        }
-        else if(ProcessInfoPool[ProcessIterator].PPID == ParentNode->PID) {
-            if (NumericSortFlag) {
-                ChildProcessIterator = ParentNode->ChildProcess;
-                if (ChildProcessIterator == NULL) {
-                    ProcessInfoPool[ProcessIterator].IsFirstChild = 1;
-                    ProcessInfoPool[ProcessIterator].BroProcess = NULL;
-                    ParentNode->ChildProcess = &(ProcessInfoPool[ProcessIterator]);
-                }
-                while(ChildProcessIterator != NULL) {
-                    if (ProcessInfoPool[ProcessIterator].PID > ChildProcessIterator->PID) {
-                        if(ChildProcessIterator->BroProcess != NULL) {
-                            if (ProcessInfoPool[ProcessIterator].PID <= ChildProcessIterator->BroProcess->PID) {
-                                ProcessInfoPool[ProcessIterator].BroProcess = ChildProcessIterator->BroProcess;
-                                ChildProcessIterator->BroProcess = &(ProcessInfoPool[ProcessIterator]);
-                                break;
-                            }
-                            else {
-                                ChildProcessIterator = ChildProcessIterator->BroProcess;
-                                continue;
-                            }
-                        }
-                        else {
-                            ChildProcessIterator->BroProcess = &(ProcessInfoPool[ProcessIterator]);
-                            break;
-                        }
-                    }
-                    else {
-                        ProcessInfoPool[ProcessIterator].IsFirstChild = 1;
-                        ProcessInfoPool[ProcessIterator].BroProcess = ChildProcessIterator;
-                        ChildProcessIterator->IsFirstChild = 0;
-                        ParentNode->ChildProcess = &(ProcessInfoPool[ProcessIterator]);
-                        break;
-                    }
-                }
-                BuildNode(&(ProcessInfoPool[ProcessIterator]));
-            }
-            else {
-                ProcessInfoPool[ProcessIterator].BroProcess = ParentNode->ChildProcess;
-                if (ProcessInfoPool[ProcessIterator].BroProcess != NULL)
-                    ProcessInfoPool[ProcessIterator].BroProcess->IsFirstChild = 0;
-                ProcessInfoPool[ProcessIterator].IsFirstChild = 1;
-                ParentNode->ChildProcess = &(ProcessInfoPool[ProcessIterator]);
-                BuildNode(ParentNode->ChildProcess);
-            }
-            ProcessInfoPool[ProcessIterator].IsVisited = 1;
-        }
-        
+        } 
     }
 }
 
