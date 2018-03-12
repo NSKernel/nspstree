@@ -20,14 +20,14 @@
 
 //=================== Helper ===================
 
- int ReadLine(FILE *fp, char s[], int lim){
-     int c, i;
-     i = 0;
-     while((c = fgetc(fp)) != EOF && c != '\n' && i < lim - 1)
-         s[i++] = c;
-     s[i] = '\0';
-     return i;
- }
+int ReadLine(FILE *fp, char s[], int lim){
+    int c, i;
+    i = 0;
+    while((c = fgetc(fp)) != EOF && c != '\n' && i < lim - 1)
+        s[i++] = c;
+    s[i] = '\0';
+    return i;
+}
 
 //================= End Helper =================
 
@@ -52,9 +52,12 @@ char PrintKernelThreadsFlag;
 char DoNotDoJobFlag;
 
 struct dirent **NameList;
+struct dirent **TaskNameList;
 int ProcessCount;
 
 char TreePrefix[1000];
+
+char FilterNeq[100];
 
 ProcessInfo ProcessInfoPool[MAX_THREAD_COUNT];
 ProcessInfo Root;
@@ -65,30 +68,34 @@ ProcessInfo Root;
 /// <param name="Directory"> The dirent object pointer </param>
 int Filter(const struct dirent *Directory) {
     int i;
+    if (!strcmp(Directory->d_name, FilterNeq))
+        return 0;
     for (i = 0; i < strlen(Directory->d_name); i++) {
-         if(Directory->d_name[i] < '0' || Directory->d_name[i] > '9')
-             return 0;
-     }
-     return 1;
- }
+        if(Directory->d_name[i] < '0' || Directory->d_name[i] > '9')
+            return 0;
+    }
+    return 1;
+}
 
 void PrintNode(ProcessInfo *CurrentNode) {
     int LastTreePrefixLength = strlen(TreePrefix);
     char RBQBuffer[100];
     int i;
     if (PrintPIDFlag) {
-        sprintf(RBQBuffer, "%s(%d)", CurrentNode->ProcessName, CurrentNode->PID);
+        if (CurrentNode->IsThreadGroup)
+            sprintf(RBQBuffer, "{%s}(%d)", CurrentNode->ProcessName, CurrentNode->PID);
+        else
+            sprintf(RBQBuffer, "%s(%d)", CurrentNode->ProcessName, CurrentNode->PID);
     }
     else {
-        sprintf(RBQBuffer, "%s", CurrentNode->ProcessName);
+        if (CurrentNode->IsThreadGroup)
+            sprintf(RBQBuffer, "{%s}", CurrentNode->ProcessName);
+        else
+            sprintf(RBQBuffer, "%s", CurrentNode->ProcessName);
     }
     if (CurrentNode->IsFirstChild) {
         if (CurrentNode->BroProcess == NULL) {
-            
-            if (CurrentNode->IsThreadGroup)
-                printf("──{%s}", RBQBuffer);
-            else
-                printf("──%s", RBQBuffer);
+            printf("──%s", RBQBuffer);
             if (CurrentNode->ChildProcess != NULL) {
                 printf("─");
                 for (i = LastTreePrefixLength; i < LastTreePrefixLength + strlen(RBQBuffer) + 3; i++) {
@@ -102,10 +109,7 @@ void PrintNode(ProcessInfo *CurrentNode) {
                 printf("\n");
         }
         else {
-            if (CurrentNode->IsThreadGroup)
-                printf("┬─{%s}", RBQBuffer);
-            else
-                printf("┬─%s", RBQBuffer);
+            printf("┬─%s", RBQBuffer);
             if (CurrentNode->ChildProcess != NULL) {
                 printf("─");
                 strcat(TreePrefix, "│");
@@ -126,10 +130,7 @@ void PrintNode(ProcessInfo *CurrentNode) {
     else {
         printf("%s", TreePrefix);
         if (CurrentNode->BroProcess == NULL) {
-            if (CurrentNode->IsThreadGroup)
-                printf("└─{%s}", RBQBuffer);
-            else
-                printf("└─%s", RBQBuffer);
+            printf("└─%s", RBQBuffer);
             if (CurrentNode->ChildProcess != NULL) {
                 printf("─");
                 for (i = LastTreePrefixLength; i < LastTreePrefixLength + strlen(RBQBuffer) + 3; i++) {
@@ -143,11 +144,7 @@ void PrintNode(ProcessInfo *CurrentNode) {
                 printf("\n");
         }
         else {
-            if (CurrentNode->IsThreadGroup)
-                printf("├─{%s}", RBQBuffer);
-            else
-                printf("├─%s", RBQBuffer);
-            
+            printf("├─%s", RBQBuffer);
             if (CurrentNode->ChildProcess != NULL) {
                 printf("─");
                 strcat(TreePrefix, "│");
@@ -160,8 +157,6 @@ void PrintNode(ProcessInfo *CurrentNode) {
             }
             else
                 printf("\n");
-            
-            
             PrintNode(CurrentNode->BroProcess);
         }
     }
@@ -247,60 +242,133 @@ void BuildTree() {
     BuildNode(&Root);
 }
 
-void ScanProcess() {
-    int ProcessCountIterator, Start, End, Length;
-     char RBQPath[100];
-     char RBQBuffer[200];
-     char RBQIDBuffer[200];
-     FILE *FangPi; // FNMDP
-     for (ProcessCountIterator = 0; ProcessCountIterator < ProcessCount; ProcessCountIterator++) {
-         strcpy(RBQPath, "/proc/");
-         strcat(RBQPath, NameList[ProcessCountIterator]->d_name);
-         strcat(RBQPath, "/status");
+void ScanTask(int TaskNameListCount, int *ProcessCountIterator) {
+    int Start, End, Length, TaskNameListIterator;
+    char RBQPath[100];
+    char RBQTaskPath[100];
+    char RBQBuffer[200];
+    char RBQIDBuffer[200];
+    FILE *FangPi; // FNMDP
+    for (TaskNameListIterator = 0; TaskNameListIterator < TaskNameListCount; (*ProcessCountIterator)++, TaskNameListIterator++) {
+        strcpy(RBQPath, "/proc/");
+        strcat(RBQPath, (TaskNameList[TaskNameListIterator])->d_name);
+        strcat(RBQPath, "/status");
 
-         FangPi = fopen(RBQPath, "r");
-         ProcessInfoPool[ProcessCountIterator].ChildProcess = NULL;
-         ProcessInfoPool[ProcessCountIterator].BroProcess = NULL;
-         ProcessInfoPool[ProcessCountIterator].IsFirstChild = 0;
-         ProcessInfoPool[ProcessCountIterator].IsThreadGroup = 0;
-         ProcessInfoPool[ProcessCountIterator].IsVisited = 0;
-         while (!feof(FangPi)) {
-             ReadLine(FangPi, RBQBuffer, 200);
-             if (strncmp(RBQBuffer, "Pid", 3) == 0) {
-                 Length = strlen(RBQBuffer) + 1; // Include '\0'
-                 Start = strlen("Pid:\t");
-                 for (End = 0; End < Length - Start; End++) {
-                     RBQIDBuffer[End] = RBQBuffer[Start + End];
-                 }
-                 ProcessInfoPool[ProcessCountIterator].PID = atoi(RBQIDBuffer);
-             }
-             else if (strncmp(RBQBuffer, "PPid", 4) == 0) {
-                 Length = strlen(RBQBuffer) + 1; // Include '\0'
-                 Start = strlen("PPid:\t");
-                 for (End = 0; End < Length - Start; End++) {
-                     RBQIDBuffer[End] = RBQBuffer[Start + End];
-                 }
-                 ProcessInfoPool[ProcessCountIterator].PPID = atoi(RBQIDBuffer);
-             }
-             else if (strncmp(RBQBuffer, "Name", 4) == 0) {
-                 Length = strlen(RBQBuffer) + 1; // Include '\0'
-                 Start = strlen("Name:\t");
-                 for (End = 0; End < Length - Start; End++) {
-                     RBQIDBuffer[End] = RBQBuffer[Start + End];
-                 }
-                 strcpy(ProcessInfoPool[ProcessCountIterator].ProcessName, RBQIDBuffer);
-             }
-             else if (strncmp(RBQBuffer, "Tgid", 3) == 0) {
-                 Length = strlen(RBQBuffer) + 1; // Include '\0'
-                 Start = strlen("Tgid:\t");
-                 for (End = 0; End < Length - Start; End++) {
-                     RBQIDBuffer[End] = RBQBuffer[Start + End];
-                 }
-                 ProcessInfoPool[ProcessCountIterator].TGID = atoi(RBQIDBuffer);
-             }
-         }
-     }
- }
+        FangPi = fopen(RBQPath, "r");
+        ProcessInfoPool[*ProcessCountIterator].ChildProcess = NULL;
+        ProcessInfoPool[*ProcessCountIterator].BroProcess = NULL;
+        ProcessInfoPool[*ProcessCountIterator].IsFirstChild = 0;
+        ProcessInfoPool[*ProcessCountIterator].IsThreadGroup = 0;
+        ProcessInfoPool[*ProcessCountIterator].IsVisited = 0;
+        while (!feof(FangPi)) {
+            ReadLine(FangPi, RBQBuffer, 200);
+            if (strncmp(RBQBuffer, "Pid", 3) == 0) {
+                Length = strlen(RBQBuffer) + 1; // Include '\0'
+                Start = strlen("Pid:\t");
+                for (End = 0; End < Length - Start; End++) {
+                    RBQIDBuffer[End] = RBQBuffer[Start + End];
+                }
+                ProcessInfoPool[*ProcessCountIterator].PID = atoi(RBQIDBuffer);
+            }
+            else if (strncmp(RBQBuffer, "PPid", 4) == 0) {
+                Length = strlen(RBQBuffer) + 1; // Include '\0'
+                Start = strlen("PPid:\t");
+                for (End = 0; End < Length - Start; End++) {
+                    RBQIDBuffer[End] = RBQBuffer[Start + End];
+                }
+                ProcessInfoPool[*ProcessCountIterator].PPID = atoi(RBQIDBuffer);
+            }
+            else if (strncmp(RBQBuffer, "Name", 4) == 0) {
+                Length = strlen(RBQBuffer) + 1; // Include '\0'
+                Start = strlen("Name:\t");
+                for (End = 0; End < Length - Start; End++) {
+                    RBQIDBuffer[End] = RBQBuffer[Start + End];
+                }
+                strcpy(ProcessInfoPool[*ProcessCountIterator].ProcessName, RBQIDBuffer);
+            }
+            else if (strncmp(RBQBuffer, "Tgid", 3) == 0) {
+                Length = strlen(RBQBuffer) + 1; // Include '\0'
+                Start = strlen("Tgid:\t");
+                for (End = 0; End < Length - Start; End++) {
+                    RBQIDBuffer[End] = RBQBuffer[Start + End];
+                }
+                ProcessInfoPool[*ProcessCountIterator].TGID = atoi(RBQIDBuffer);
+            }
+        }
+        if(ProcessInfoPool[*ProcessCountIterator].TGID != ProcessInfoPool[*ProcessCountIterator].PID) {
+            ProcessInfoPool[*ProcessCountIterator].IsThreadGroup = 1;
+            ProcessInfoPool[*ProcessCountIterator].PPID = ProcessInfoPool[*ProcessCountIterator].TGID;
+        }
+    }
+}
+
+void ScanProcess() {
+    int ProcessCountIterator, Start, End, Length, NameListIterator, TaskNameListCount;
+    char RBQPath[100];
+    char RBQTaskPath[100];
+    char RBQBuffer[200];
+    char RBQIDBuffer[200];
+    
+    FILE *FangPi; // FNMDP
+    for (ProcessCountIterator = 0, NameListIterator = 0; NameListIterator < ProcessCount; ProcessCountIterator++, NameListIterator++) {
+        strcpy(RBQPath, "/proc/");
+        strcat(RBQPath, NameList[NameListIterator]->d_name);
+        strcat(RBQPath, "/status");
+        
+        strcpy(FilterNeq, NameList[NameListIterator]->d_name);
+        strcpy(RBQTaskPath, "/proc/");
+        strcat(RBQTaskPath, NameList[NameListIterator]->d_name);
+        strcat(RBQTaskPath, "/task");
+        TaskNameListCount = scandir(RBQTaskPath, &TaskNameList, Filter, alphasort);
+        if(TaskNameListCount != 0) {
+            ScanTask(TaskNameListCount, &ProcessCountIterator);
+            free(TaskNameList);
+        }
+
+        FangPi = fopen(RBQPath, "r");
+        ProcessInfoPool[ProcessCountIterator].ChildProcess = NULL;
+        ProcessInfoPool[ProcessCountIterator].BroProcess = NULL;
+        ProcessInfoPool[ProcessCountIterator].IsFirstChild = 0;
+        ProcessInfoPool[ProcessCountIterator].IsThreadGroup = 0;
+        ProcessInfoPool[ProcessCountIterator].IsVisited = 0;
+        while (!feof(FangPi)) {
+            ReadLine(FangPi, RBQBuffer, 200);
+            if (strncmp(RBQBuffer, "Pid", 3) == 0) {
+                Length = strlen(RBQBuffer) + 1; // Include '\0'
+                Start = strlen("Pid:\t");
+                for (End = 0; End < Length - Start; End++) {
+                    RBQIDBuffer[End] = RBQBuffer[Start + End];
+                }
+                ProcessInfoPool[ProcessCountIterator].PID = atoi(RBQIDBuffer);
+            }
+            else if (strncmp(RBQBuffer, "PPid", 4) == 0) {
+                Length = strlen(RBQBuffer) + 1; // Include '\0'
+                Start = strlen("PPid:\t");
+                for (End = 0; End < Length - Start; End++) {
+                    RBQIDBuffer[End] = RBQBuffer[Start + End];
+                }
+                ProcessInfoPool[ProcessCountIterator].PPID = atoi(RBQIDBuffer);
+            }
+            else if (strncmp(RBQBuffer, "Name", 4) == 0) {
+                Length = strlen(RBQBuffer) + 1; // Include '\0'
+                Start = strlen("Name:\t");
+                for (End = 0; End < Length - Start; End++) {
+                    RBQIDBuffer[End] = RBQBuffer[Start + End];
+                }
+                strcpy(ProcessInfoPool[ProcessCountIterator].ProcessName, RBQIDBuffer);
+            }
+            else if (strncmp(RBQBuffer, "Tgid", 3) == 0) {
+                Length = strlen(RBQBuffer) + 1; // Include '\0'
+                Start = strlen("Tgid:\t");
+                for (End = 0; End < Length - Start; End++) {
+                    RBQIDBuffer[End] = RBQBuffer[Start + End];
+                }
+                ProcessInfoPool[ProcessCountIterator].TGID = atoi(RBQIDBuffer);
+            }
+        }
+    }
+    ProcessCount = ProcessCountIterator;
+}
 
 int main(int argc, char **argv) {
     int i;
@@ -308,6 +376,7 @@ int main(int argc, char **argv) {
     NumericSortFlag = 0;
     PrintKernelThreadsFlag = 0;
     DoNotDoJobFlag = 0;
+    FilterNeq[0] = '\0';
     for (i = 1; i < argc; i++){
         if (strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "--show-pids") == 0) {
             PrintPIDFlag = 1;

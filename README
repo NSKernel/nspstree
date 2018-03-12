@@ -5,7 +5,7 @@ Opensourced under GPL v3.
 
 This project is part of the 2018 spring OS Lab of Nanjing University, instruted by Dr. Jiang Yanyan, and is implemented by NSKernel.
 
-This project implemented a miniature of the classic UNIX command pstree, which lists all the processes running in the form of a tree. The program implemented 3 options wwhich are
+This project implemented a miniature of the classic UNIX command pstree by reading kernel information from the /proc directory(thus makes it only compatible with Linux), which lists all the processes running in the form of a tree. The program implemented 3 options wwhich are
   -p, --show-pids:      which prints out the PID of each process.
   -n, --numeric-sort:   which sorts all the processes by their PIDs.
   -k, --kernel-threads: which prints out the kernel threads along side with normal output.
